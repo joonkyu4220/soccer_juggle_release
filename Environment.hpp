@@ -36,31 +36,29 @@ class ENVIRONMENT : public RaisimGymEnv {
     walker_->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
     world_->addGround(0, "steel");
     world_->setERP(1.0);
-
     world_->setMaterialPairProp("default", "ball", 1.0, 0.8, 0.0001);
     world_->setMaterialPairProp("default", "steel", 5.0, 0.0, 0.0001);
     soccer_ = world_->addArticulatedSystem(resourceDir_+"/ball3D.urdf");
     soccer_->setIntegrationScheme(raisim::ArticulatedSystem::IntegrationScheme::RUNGE_KUTTA_4);
-    ball_gc_init_.setZero(7);
+    
+    ball_gc_init_.setZero(7); ball_gc_init_[0] = 0.2; ball_gc_init_[1] = 0.15; ball_gc_init_[3] = 1;
     ball_gv_init_.setZero(6);
-    ball_gc_init_[3] = 1;
-    ball_gc_.setZero(7);
-    ball_gc_[3] = 1;
+    ball_gc_.setZero(7); ball_gc_[3] = 1;
     ball_gv_.setZero(6);
-    ball_gc_init_[0] = 0.2;
-    ball_gc_init_[1] = 0.15;
     ball_reference_.setZero(7);
     ball_reference_vel_.setZero(6);
     soccer_->setState(ball_gc_init_, ball_gv_init_);
 
     /// get robot data
-    gcDim_ = walker_->getGeneralizedCoordinateDim();
-    gvDim_ = walker_->getDOF();
-    nJoints_ = gvDim_ - 6;
+    gcDim_ = walker_->getGeneralizedCoordinateDim(); // gcDim_ = 43 = 3 + 4 + 4 + 4 + 4 + 1 + 4 + 1 + 4 + 1 + 4 + 4 + 1 + 4
+    // root pos + root orn + chest orn + neck orn + right shoulder, elbow + left shoulder, elbow + right hip, knee, ankle + left hip, knee, ankle
+    gvDim_ = walker_->getDOF(); // gvDim_ = 34 = 3 + 3 + 3 + 3 + 3 + 1 + 3 + 1 + 3 + 1 + 3 + 3 + 1 + 3
+    nJoints_ = gvDim_ - 6; // nJoints = 28 = 0 + 0 + 3 + 3 + 3 + 1 + 3 + 1 + 3 + 1 + 3 + 3 + 1 + 3
 
     /// initialize containers
     gc_.setZero(gcDim_); gc_init_.setZero(gcDim_);
     gv_.setZero(gvDim_); gv_init_.setZero(gvDim_);
+
     pTarget_.setZero(gcDim_); vTarget_.setZero(gvDim_); pTarget12_.setZero(nJoints_);
     reference_.setZero(gcDim_);
 
@@ -73,38 +71,76 @@ class ENVIRONMENT : public RaisimGymEnv {
     read_around_the_world_right();
 
     /// this is nominal configuration of anymal
-    gc_init_ << 0, 0, 1.707, 0.707, 0.707, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 
-      0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0;
-    reference_ << 0, 0, 1.707, 0.707, 0.707, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 
-      0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0;
-
+    gc_init_ <<
+      0, 0, 1.707, // root pos
+      0.707, 0.707, 0, 0, // root orn
+      1, 0, 0, 0, // chest
+      1, 0, 0, 0, // neck
+      1, 0, 0, 0, // right shoulder
+      0, // right elbow
+      1, 0, 0, 0, // left shoulder
+      0, // left elbow
+      1, 0, 0, 0, // right hip
+      0, // right knee
+      1, 0, 0, 0, // right ankle
+      1, 0, 0, 0, // left hip
+      0, // left knee
+      1, 0, 0, 0; // left ankle
+    reference_ <<
+      0, 0, 1.707, // root pos
+      0.707, 0.707, 0, 0, // root orn
+      1, 0, 0, 0, // chest
+      1, 0, 0, 0, // neck
+      1, 0, 0, 0, // right shoulder
+      0, // right elbow
+      1, 0, 0, 0, // left shoulder
+      0, // left elbow
+      1, 0, 0, 0, // right hip
+      0, // right knee
+      1, 0, 0, 0, // right ankle
+      1, 0, 0, 0, // left hip
+      0, // left knee
+      1, 0, 0, 0; // left ankle
+    
     /// set pd gains
-    Eigen::VectorXd jointPgain(gvDim_), jointDgain(gvDim_);
-    jointPgain.setZero(); jointPgain.tail(nJoints_).setConstant(250.0);//250
-    jointDgain.setZero(); jointDgain.tail(nJoints_).setConstant(25.);//25
-    jointPgain.segment(9, 3).setConstant(50.0); jointDgain.segment(9, 3).setConstant(5.0);
-    jointPgain.segment(12, 8).setConstant(100.0); jointDgain.segment(12, 8).setConstant(10.0);
-    jointPgain.segment(24, 3).setConstant(150.0); jointDgain.segment(24, 3).setConstant(15.0);
-    jointPgain.segment(31, 3).setConstant(150.0); jointDgain.segment(31, 3).setConstant(15.0);
-    jointPgain.segment(12, 8).setConstant(50.0); jointDgain.segment(12, 8).setConstant(5.0);
+    Eigen::VectorXd jointPgain(gvDim_), jointDgain(gvDim_); // 34 = 3 + 3 + 3 + 3 + 3 + 1 + 3 + 1 + 3 + 1 + 3 + 3 + 1 + 3
+    jointPgain.setZero(); jointPgain.tail(nJoints_).setConstant(250.0);
+    jointDgain.setZero(); jointDgain.tail(nJoints_).setConstant(25.);
+    jointPgain.segment(9, 3).setConstant(50.0); jointDgain.segment(9, 3).setConstant(5.0); // neck
+    // NOTE: REDUNDANT
+    // jointPgain.segment(12, 8).setConstant(100.0); jointDgain.segment(12, 8).setConstant(10.0); // right shoulder, elbow, left shoulder, elbow
+    jointPgain.segment(24, 3).setConstant(150.0); jointDgain.segment(24, 3).setConstant(15.0); // right ankle
+    jointPgain.segment(31, 3).setConstant(150.0); jointDgain.segment(31, 3).setConstant(15.0); // left ankle
+    jointPgain.segment(12, 8).setConstant(50.0); jointDgain.segment(12, 8).setConstant(5.0); // right shoulder, elbow, left shoulder, elbow
     walker_->setPdGains(jointPgain, jointDgain);
     walker_->setGeneralizedForce(Eigen::VectorXd::Zero(gvDim_));
 
 
     /// MUST BE DONE FOR ALL ENVIRONMENTS
-    obDim_ = 88 + 3 * num_task_;//94;
+    obDim_ = 88 + 3 * num_task_; // num_task_ = 23
+    // root height (1), root orn (4),
+    // chest orn (4), neck orn (4), all other orns (28),
+    // root lin-vel (3), root ang-vel (3),
+    // all other ang-vels (28)
+    // root speed (1)
+    // ball pos - root pos (3)
+    // ball lin-vel (3), ang-vel (3)
+    // phase speed (1),
+    // phase cos (1), phase sin (1)
+    // task vector (num_task_), next task vector (num_task_), next next task vector (num_task_)
+
     actionDim_ = nJoints_; actionMean_.setZero(actionDim_); actionStd_.setZero(actionDim_);
     obDouble_.setZero(obDim_);
 
-    stateDim_ = gcDim_ + 7;
-    stateDouble_.setZero(stateDim_ * 2);
+    stateDim_ = gcDim_ + 7; // humanoid + ball
+    stateDouble_.setZero(stateDim_ * 2); // humanoid + ball + humanoid_ref + ball_ref
 
     /// action scaling
     //actionMean_ = gc_init_.tail(nJoints_);
     actionStd_.setConstant(1);
 
     /// Reward coefficients
-    rewards_.initializeFromConfigurationFile (cfg["reward"]);
+    rewards_.initializeFromConfigurationFile (cfg["reward"]); // pos, orn, joint, ball reward weights
 
     task_vector_.setZero(num_task_), next_task_vector_.setZero(num_task_), next_next_task_vector_.setZero(num_task_);
 
@@ -113,73 +149,73 @@ class ENVIRONMENT : public RaisimGymEnv {
     psuduo_node_->max_weight = 0;
 
     int id = 0;
-    foot_juggle_down_node_->id = id; //0
+    foot_juggle_down_node_->id = id; // 0
     foot_juggle_down_node_->weight = 1;
     id++;
     foot_juggle_up_node_->id = id; // 1
     foot_juggle_up_node_->weight = 1;
     id++;
-    around_the_world_up_node_->id = id; //2
+    around_the_world_up_node_->id = id; // 2
     around_the_world_up_node_->weight = 1;
     id++;
-    around_the_world_down_node_->id = id; //3
+    around_the_world_down_node_->id = id; // 3
     around_the_world_down_node_->weight = 1;
     id++;
-    foot_stall_enter_node_->id = id; //4
+    foot_stall_enter_node_->id = id; // 4
     foot_stall_enter_node_->weight = 1;
     id++;
     foot_stall_exit_node_->id = id;// 5
     foot_stall_exit_node_->weight = 1;
     id++;
-    chest_stall_node_->id = id; //6
+    chest_stall_node_->id = id; // 6
     chest_stall_node_->weight = 1;
     id++;
-    chest_juggle_up_node_->id = id; //7
+    chest_juggle_up_node_->id = id; // 7
     chest_juggle_up_node_->weight = 1;
     id++;
-    chest_juggle_down_node_->id = id; //8
+    chest_juggle_down_node_->id = id; // 8
     chest_juggle_down_node_->weight = 1;
     id++;
-    head_juggle_down_node_->id = id; //9
+    head_juggle_down_node_->id = id; // 9
     head_juggle_down_node_->weight = 1;
     id++;
-    head_juggle_up_node_->id = id; //10
+    head_juggle_up_node_->id = id; // 10
     head_juggle_up_node_->weight = 1;
     id++;
-    head_stall_node_->id = id; //11
+    head_stall_node_->id = id; // 11
     head_stall_node_->weight = 1;
     id++;
-    head_stall_exit_node_->id = id; //12
+    head_stall_exit_node_->id = id; // 12
     head_stall_exit_node_->weight = 1;
     id++;
-    knee_juggle_down_node_->id = id;//13
+    knee_juggle_down_node_->id = id;// 13
     knee_juggle_down_node_->weight = 1;
     id++;
-    knee_juggle_up_node_->id = id; //14
+    knee_juggle_up_node_->id = id; // 14
     knee_juggle_up_node_->weight = 1;
     id++;
-    right_foot_juggle_down_node_->id = id; //15
+    right_foot_juggle_down_node_->id = id; // 15
     right_foot_juggle_down_node_->weight = 1;
     id++;
-    right_foot_juggle_up_node_->id = id; //16
+    right_foot_juggle_up_node_->id = id; // 16
     right_foot_juggle_up_node_->weight = 1;
     id++;
-    right_knee_juggle_down_node_->id = id; //17
+    right_knee_juggle_down_node_->id = id; // 17
     right_knee_juggle_down_node_->weight = 1;
     id++;
-    right_knee_juggle_up_node_->id = id; //18
+    right_knee_juggle_up_node_->id = id; // 18
     right_knee_juggle_up_node_->weight = 1;
     id++;
-    right_around_the_world_down_node_->id = id; //19
+    right_around_the_world_down_node_->id = id; // 19
     right_around_the_world_down_node_->weight = 1;
     id++;
-    right_around_the_world_up_node_->id = id; //20
+    right_around_the_world_up_node_->id = id; // 20
     right_around_the_world_up_node_->weight = 1;
     id++;
     right_foot_stall_node_->id = id; // 21
     right_foot_stall_node_->weight = 1;
     id++;
-    right_foot_stall_exit_node_->id = id; //22
+    right_foot_stall_exit_node_->id = id; // 22 = num_task_ - 1
     right_foot_stall_exit_node_->weight = 1;
 
     foot_juggle_down_node_->neighbour.push_back(foot_juggle_up_node_);
@@ -226,6 +262,7 @@ class ENVIRONMENT : public RaisimGymEnv {
     around_the_world_down_node_->original_weight.push_back(1);
     around_the_world_down_node_->max_weight = 2;
 
+    // provoke repetition
     foot_stall_enter_node_->neighbour.push_back(foot_stall_enter_node_);
     foot_stall_enter_node_->neighbour_weight.push_back(30);
     foot_stall_enter_node_->original_weight.push_back(30);
@@ -288,6 +325,7 @@ class ENVIRONMENT : public RaisimGymEnv {
     head_juggle_up_node_->original_weight.push_back(1);
     head_juggle_up_node_->max_weight = 5;
 
+    // provoke repetition
     head_stall_node_->neighbour.push_back(head_stall_node_);
     head_stall_node_->neighbour_weight.push_back(30);
     head_stall_node_->original_weight.push_back(30);
@@ -395,6 +433,7 @@ class ENVIRONMENT : public RaisimGymEnv {
     right_around_the_world_down_node_->original_weight.push_back(1);
     right_around_the_world_down_node_->max_weight = 2;
 
+    // provoke repetition
     right_foot_stall_node_->neighbour.push_back(right_foot_stall_node_);
     right_foot_stall_node_->neighbour_weight.push_back(30);
     right_foot_stall_node_->original_weight.push_back(30);
@@ -424,7 +463,6 @@ class ENVIRONMENT : public RaisimGymEnv {
       server_->launchServer();
       server_->focusOn(walker_);
     }
-
   }
 
   void init() final { }
@@ -476,8 +514,8 @@ class ENVIRONMENT : public RaisimGymEnv {
 
   void reset() final {
     previous_choice_ = -1, previous_previous_choice_ = -1;
-    speed = 0.0;//(double(rand() % 8) - 2.0) / 10.0;
-    phase_ = 0;//rand() % max_phase_;
+    speed = 0.0; // (double(rand() % 8) - 2.0) / 10.0;
+    phase_ = 0; // rand() % max_phase_;
     phase_speed_ = (4.0 + (double)rand() / RAND_MAX * 2); 
     next_phase_speed_ = (4.0 + (double)rand() / RAND_MAX * 2);
     sim_step_ = 0;
@@ -497,17 +535,15 @@ class ENVIRONMENT : public RaisimGymEnv {
     next_next_task_vector_.setZero();
     next_next_task_vector_[next_next_node_->id] = 1;
 
-
     switch (current_node_->id) {
-      case 5:
-        desired_max_height_ = 2.0;
-        break;
-      case 7:
-      case 8:
-      case 9:
-      case 10:
-      case 11:
-      case 12:
+      case 5: // foot_stall_exit
+      case 7: // chest juggle up
+      case 8: // chest juggle down
+      case 9: // head juggle down
+      case 10: // head juggle up
+      case 11: // head stall
+      case 12: // head_stall_exit
+      case 22: // right foot stall exit
         desired_max_height_ = 2.0;
         break;
       default:
@@ -515,52 +551,59 @@ class ENVIRONMENT : public RaisimGymEnv {
     }
     calculate_phase_speed(desired_max_height_);
     switch (next_next_node_->id) {
-      case 0:
-      case 1:
-      case 13:
-      case 14:
-      case 15:
-      case 16:
-      case 17:
-      case 18:
+      case 0: // foot juggle down
+      case 1: // foot juggle up
+      case 13: // knee juggle down
+      case 14: // knee juggle up
+      case 15: // right fott juggle down
+      case 16: // right foot juggle up
+      case 17: // right knee juggle down
+      case 18: // right knee juggle up
          if (current_node_->id == 7 or current_node_->id == 8 or current_node_->id == 9 or current_node_->id == 10)
+          // chest juggle up/down, head juggle down/up
           desired_max_height_ = 2.0;
          else
           desired_max_height_ = 1.4;
          break;
-      case 5:
-      case 7:
-      case 8:
-      case 9:
-      case 10:
-      case 11:
-      case 12:
-      case 22:
+      case 5: // foot_stall_exit
+      case 7: // chest juggle up
+      case 8: // chest juggle down
+      case 9: // head juggle down
+      case 10: // head juggle up
+      case 11: // head stall
+      case 12: // head_stall_exit
+      case 22: // right foot stall exit
         desired_max_height_ = 2.0;
         break;
       default:
         desired_max_height_ = 1.4;
     }
-    
+
     if (current_node_->id == 9 or current_node_->id == 10) {
+      // head juggle down/up
       setReferenceMotionHead();
       setBallReference();
     }
     else if (current_node_->id == 0 or current_node_->id == 1 or current_node_->id == 13 
       or current_node_->id == 14 or current_node_->id == 15 or current_node_->id == 16
       or current_node_->id == 17 or current_node_->id == 18) {
+      // foot juggle down/up, knee juggle down/up, right foot juggle down/up, right knee juggle down/up
       setReferenceMotion();
       setBallReference();
     }
-    else if (current_node_->id == 2 or current_node_->id == 3)
+    else if (current_node_->id == 2 or current_node_->id == 3){
+      // around the world up/down
       setReferenceMotionAroundTheWorld();
-    else if (current_node_->id == 19 or current_node_->id == 20)
+    }
+    else if (current_node_->id == 19 or current_node_->id == 20){
+      // right around the world up/down
       setReferenceMotionAroundTheWorldRight();
+    }
     else if (current_node_->id == 7 or current_node_->id == 8) {
+      // chest juggle up/down
       setChestMotion();
       setBallReference();
     }
-
     walker_->setState(reference_, gv_init_);
     soccer_->setState(ball_reference_, ball_reference_vel_ * 0);
     updateObservation();
@@ -572,56 +615,64 @@ class ENVIRONMENT : public RaisimGymEnv {
 
   float step(const Eigen::Ref<EigenVec>& action) final {
     if (current_node_->id == 9 or current_node_->id == 10) {
+      // head juggle down/up
       setReferenceMotionHead();
       setBallReference();
     }
     else if (current_node_->id == 0 or current_node_->id == 1 or current_node_->id == 13 or current_node_->id == 14
       or current_node_->id == 15 or current_node_->id == 16 or current_node_->id == 17 or current_node_->id == 18){
+      // foot juggle down/up, knee juggle down/up, right foot juggle down/up, right knee juggle down/up
       setReferenceMotion();
       setBallReference();
     }
     else if (current_node_->id == 2 or current_node_->id == 3) {
+      // around the world up/down
       setReferenceMotionAroundTheWorld();
       phase_speed_ = max_phase_ / 30;
     }
     else if (current_node_->id == 19 or current_node_->id == 20) {
+      // right around the world up/down
       setReferenceMotionAroundTheWorldRight();
       phase_speed_ = max_phase_ / 30;
     }
     else if (current_node_->id == 4 || current_node_->id == 5 || current_node_->id == 21 || current_node_->id == 22) {
+      // (right) foot stall (exit)
       setReferenceMotion();
       setBallReference();
       phase_speed_ = 0;
     }
     else if (current_node_->id == 6) {
+      // chest stall
       setChestStallMotion();
       phase_speed_ = 0;
     }
     else if (current_node_->id == 7 or current_node_->id == 8) {
+      // chest juggle up/down
       setChestMotion();
       setBallReference();
     }
     else if (current_node_->id == 11 or current_node_->id == 12) {
+      // head stall (exit)
       setReferenceMotionHead();
       setBallReference();
       phase_speed_ = 0;
     }
 
-    pTarget_.tail(36) = reference_.tail(36);
+    pTarget_.tail(36) = reference_.tail(36); // all joints
 
     //walker_->setState(reference_, gv_init_);
     //soccer_->setState(ball_reference_, ball_reference_vel_);
 
     walker_->setPdTarget(pTarget_, vTarget_);
-    Eigen::VectorXd torque = Eigen::VectorXd::Zero(gvDim_);
+    Eigen::VectorXd torque = Eigen::VectorXd::Zero(gvDim_); // gvDim_ = 34
 
-    torque.segment(6, 28) = action.cast<double>() * 100.0;
-    torque.segment(9, 3) *= 0.5;
-    torque.segment(20, 4) *= 2.5;
-    torque.segment(24, 3) *= 1.5;
-    torque.segment(31, 3) *= 1.5;
-    torque.segment(27, 4) *= 2.5;
-    torque.segment(12, 8) *= 0.5;
+    torque.segment(6, 28) = action.cast<double>() * 100.0; // all joints
+    torque.segment(9, 3) *= 0.5; // neck
+    torque.segment(12, 8) *= 0.5; // right/left shoulder, elbow
+    torque.segment(20, 4) *= 2.5; // right hip, knee
+    torque.segment(24, 3) *= 1.5; // right ankle
+    torque.segment(27, 4) *= 2.5; // left hip, knee
+    torque.segment(31, 3) *= 1.5; // left ankle
 
     int num_contact = 0;
     for(int i=0; i< int(control_dt_ / simulation_dt_ + 1e-10); i++){
@@ -633,18 +684,22 @@ class ENVIRONMENT : public RaisimGymEnv {
       for(auto& contact: soccer_->getContacts()) {
         num_contact++;
         if (phase_speed_ > 0.1 && (phase_ < max_phase_ / 2 - 3 * phase_speed_ || phase_ > max_phase_ / 2 + 3 * phase_speed_))
+        // above desirable contact point (lowest point)
         {
           contact_terminal_flag_ = true;
           break;
         }
         soccer_->getState(ball_gc_, ball_gv_);
         if (ball_gc_[2] < 0.2) {
+          // below desirable contact point
           contact_terminal_flag_ = true;
           break;
         }
+
         auto& pair_contact = world_->getObject(contact.getPairObjectIndex())->getContacts()[contact.getPairContactIndexInPairObject()];
 
         switch (current_node_->id) {
+          // head juggle down/up, head stall
           case 9:
           case 10:
           case 11:
@@ -653,18 +708,21 @@ class ENVIRONMENT : public RaisimGymEnv {
               contact_terminal_flag_ = true;
             }
             break;
+          // knee juggle down/up
           case 13:
           case 14:
             if (walker_->getBodyIdx("left_hip") != pair_contact.getlocalBodyIndex() 
           && walker_->getBodyIdx("left_knee") != pair_contact.getlocalBodyIndex())
               contact_terminal_flag_ = true;
             break;
+          // right knee juggle down/up
           case 17:
           case 18:
             if (walker_->getBodyIdx("right_hip") != pair_contact.getlocalBodyIndex()
           && walker_->getBodyIdx("right_knee") != pair_contact.getlocalBodyIndex())
               contact_terminal_flag_ = true;
             break;
+          // foot juggle down/up, around the world up/down, foot stall enter/exit
           case 0:
           case 1:
           case 2:
@@ -675,12 +733,14 @@ class ENVIRONMENT : public RaisimGymEnv {
            && walker_->getBodyIdx("left_knee") != pair_contact.getlocalBodyIndex()) 
               contact_terminal_flag_ = true;
             break;
+          // chest stall, chest juggle up/down
           case 6:
           case 7:
           case 8:
             if (walker_->getBodyIdx("chest") != pair_contact.getlocalBodyIndex() && walker_->getBodyIdx("neck") != pair_contact.getlocalBodyIndex()) 
                 contact_terminal_flag_ = true;
               break;
+          // right foot juggle down/up, right around the world down/up, right foot stall (exit)
           case 15:
           case 16:
           case 19:
@@ -696,20 +756,34 @@ class ENVIRONMENT : public RaisimGymEnv {
         }
       }
     }
-
+    
+    // foot stall (exit), chest stall, head stall (exit), right foot stall (exit)
     if ((previous_node_->id == 4 || previous_node_->id == 5 || previous_node_->id == 6 || 
       previous_node_->id == 11 || previous_node_->id == 12 || previous_node_->id == 21 || previous_node_->id == 22) 
       && phase_speed_ < 0.1) {
 
       raisim::Vec<3> footPosition;
+      // foot stall (exit)
       if (previous_node_->id == 4 || previous_node_->id == 5) {
         auto footFrameIndex = walker_->getFrameIdxByName("left_ankle");
         walker_->getFramePosition(footFrameIndex, footPosition);
       }
+      // right foot stall (exit)
       else if (previous_node_->id == 21 or previous_node_->id == 22) {
         auto footFrameIndex = walker_->getFrameIdxByName("right_ankle");
         walker_->getFramePosition(footFrameIndex, footPosition);
       }
+      // NOTE: MISSING?
+      // else if (previous_node_->id == 6) {
+      //   auto footFrameIndex = walker_->getFrameIdxByName("chest");
+      //   walker_->getFramePosition(footFrameIndex, footPosition);
+      // }
+      // else if (previous_node_->id == 11 or previous_node_->id == 12) {
+      //   auto footFrameIndex = walker_->getFrameIdxByName("neck");
+      //   walker_->getFramePosition(footFrameIndex, footPosition);
+      // }
+
+
       soccer_->getState(ball_gc_, ball_gv_);
       float foot_ball_distance = std::pow(footPosition[0] - ball_gc_[0], 2) + std::pow(footPosition[1] - ball_gc_[1], 2)
         + std::pow(footPosition[2] - ball_gc_[2], 2);
@@ -724,6 +798,7 @@ class ENVIRONMENT : public RaisimGymEnv {
     if ((phase_ > max_phase_ / 2 - phase_speed_ / 2 && phase_ < max_phase_ / 2 + phase_speed_ / 2) ||
       current_node_->id == 4 || current_node_->id == 5 || current_node_->id == 6 || current_node_->id == 11 || current_node_->id == 12
       || current_node_->id == 21 || current_node_->id == 22) {
+      // round the phase, near contact/stalling
       phase_ = max_phase_ / 2;
       if (previous_node_->id != -1) {
         update_previous_node();
@@ -734,12 +809,16 @@ class ENVIRONMENT : public RaisimGymEnv {
       next_node_ = next_next_node_;
       next_next_node_ = next_node_->neighbour[select_next_node(next_node_)];
 
+      // foot juggle down/up, chest juggle up/down, head juggle down/up,
+      // knee juggle down/up, right foot juggle down/up, right knee juggle down/up
       if (current_node_->id == 0 or current_node_->id == 1 or current_node_->id == 7 or current_node_->id == 8 or 
         current_node_->id == 9 or current_node_->id == 10 or current_node_->id == 13 or current_node_->id == 14
         or current_node_->id == 15 or current_node_->id == 16 or current_node_->id == 17 or current_node_->id == 18)
         calculate_phase_speed(desired_max_height_);
+      // (right) around the world up/down
       else if (current_node_->id == 2 or current_node_->id == 3 or current_node_->id == 19 or current_node_->id == 20)
         phase_speed_ = max_phase_ / 30;
+      // foot stall (exit), head stall (exit), right foot stall (exit)
       else if (current_node_->id == 4 or current_node_->id == 5 or current_node_->id == 11 or current_node_->id == 12 
         or current_node_->id == 21 or current_node_->id == 22)
         phase_speed_ = 0;
@@ -761,7 +840,6 @@ class ENVIRONMENT : public RaisimGymEnv {
       next_node_ = next_next_node_;
       next_next_node_ = next_node_->neighbour[select_next_node(next_node_)];
 
-
       // update contact height
       task_vector_.setZero();
       task_vector_[current_node_->id] = 1;
@@ -771,22 +849,27 @@ class ENVIRONMENT : public RaisimGymEnv {
       next_next_task_vector_[next_next_node_->id] = 1;
       
       // update phase speed
+      // (right) foot/knee juggle down/up
       if (current_node_->id == 0 or current_node_->id == 1 or current_node_->id == 13 or current_node_->id == 14
         or current_node_->id == 15 or current_node_->id == 16 or current_node_->id == 17 or current_node_->id == 18)
         calculate_phase_speed(desired_max_height_);
+      // chest/head juggle up/down
       else if (current_node_->id == 7 or current_node_->id == 8 or current_node_->id == 9 or current_node_->id == 10)
         calculate_phase_speed(desired_max_height_);
+      // (right) around the world up/down
       else if (current_node_->id == 2 or current_node_->id == 3 or current_node_->id == 19 or current_node_->id == 20)
         phase_speed_ = max_phase_ / 30;
 
       //update next desired max height
       switch (next_next_node_->id) {
+        // head juggle down/up, head stall
         case 9:
         case 10:
         case 11:
         case 12:
           desired_max_height_ = 2.0;
           break;
+        // (right) foot/knee juggle down/up
         case 0:
         case 1:
         case 13:
@@ -795,12 +878,14 @@ class ENVIRONMENT : public RaisimGymEnv {
         case 16:
         case 17:
         case 18:
-           if (current_node_->id == 7 or current_node_->id == 8 or current_node_->id == 9 or current_node_->id == 10 
-            or current_node_->id == 11 or current_node_->id == 12)
+          // chest/head juggle up/down
+          if (current_node_->id == 7 or current_node_->id == 8 or current_node_->id == 9 or current_node_->id == 10 
+          or current_node_->id == 11 or current_node_->id == 12)
             desired_max_height_ = 2.0;
-           else
+          else
             desired_max_height_ = 1.4;
-           break;
+          break;
+        // chest juggle up/down
         case 7:
         case 8:
           desired_max_height_ = 2.0;
@@ -809,24 +894,25 @@ class ENVIRONMENT : public RaisimGymEnv {
           desired_max_height_ = 1.4;
       }
     }
-
+    
     updateObservation();
     computeReward();
+    // NOTE: () * 0.0? for what?
     double current_reward = rewards_.sum() * 0.5 + (rewards_["position"] + rewards_["orientation"] + rewards_["joint"]) * rewards_["ball position"] * 0.0;
     total_reward_ +=  current_reward;
 
-    return  current_reward;
+    return current_reward;
   }
 
   void computeReward() {
     float joint_reward = 0, position_reward = 0, orientation_reward = 0;
-    
+
     //compute joint reward
     raisim::Vec<4> quat, quat2, quat_error;
     raisim::Mat<3,3> rot, rot2, rot_error;
-    
     for (int j = 0; j < 12; j++) {
       if (j == 0 or j == 1 or j == 2 or j == 4 or j == 6 or j == 8 or j == 9 or j == 11) {
+        // spherical joints
         quat[0] = gc_[joint_start_index[j]]; quat[1] = gc_[joint_start_index[j]+1]; 
         quat[2] = gc_[joint_start_index[j]+2]; quat[3] = gc_[joint_start_index[j]+3];
         quat2[0] = reference_[joint_start_index[j]]; quat2[1] = reference_[joint_start_index[j]+1]; 
@@ -835,18 +921,22 @@ class ENVIRONMENT : public RaisimGymEnv {
         raisim::quatToRotMat(quat2, rot2);
         raisim::mattransposematmul(rot, rot2, rot_error);
         raisim::rotMatToQuat(rot_error, quat_error);
+        // sin^2(err / 2)
         joint_reward += 1*(std::pow(quat_error[1], 2) + std::pow(quat_error[2], 2) + std::pow(quat_error[3], 2));
       }
       else {
+        // revolute joints
         joint_reward += std::pow(gc_[joint_start_index[j]] - reference_[joint_start_index[j]], 2);
       }
     }
 
+    // desired forward velocity, steady left/right, and desired height
     position_reward += 1.0 * std::pow(gv_[0]-speed, 2) + std::pow(gv_[1]-0, 2) + std::pow(gc_[2]-reference_[2], 2);
-    
+    // Euclidean distance between root orn quaternions
     orientation_reward += (std::pow(gc_[4]-reference_[4], 2)) + (std::pow(gc_[5]-reference_[5], 2)) + (std::pow(gc_[6]-reference_[6], 2));
 
     float ball_position_reward = 0;
+    // root pos + relative ball pos - global ball pos, squared
     ball_position_reward += std::pow(ball_reference_[0] - ball_gc_[0] + gc_[0], 2) + 
       std::pow(ball_reference_[1] - ball_gc_[1] + gc_[1], 2) + 5 * std::pow(ball_reference_[2] - ball_gc_[2], 2);
 
@@ -859,15 +949,14 @@ class ENVIRONMENT : public RaisimGymEnv {
   void updateObservation() {
     soccer_->getState(ball_gc_, ball_gv_);
     walker_->getState(gc_, gv_);
-
     obDouble_ << gc_[2], /// body height
-        (gc_[3] - 0.707) * 4, (gc_[4] - 0.707) * 4, gc_[5] * 4, gc_[6] * 4,/// body orientation
+        (gc_[3] - 0.707) * 4, (gc_[4] - 0.707) * 4, gc_[5] * 4, gc_[6] * 4,/// body orientation: relative to straight-up root
         gc_[7], gc_[8] * 2, gc_[9] * 2, gc_[10] * 2, //chest
-        gc_[11], gc_[12] * 2, gc_[13] * 2, gc_[14] * 2, //chest
+        gc_[11], gc_[12] * 2, gc_[13] * 2, gc_[14] * 2, //chest / NOTE: neck
         gc_.tail(28), /// joint angles
         gv_[0], gv_[1], gv_[2], gv_[3], gv_[4], gv_[5],/// body linear&angular velocity
         gv_.tail(28) / 10.0, /// joint velocity
-        speed, //speed
+        speed, // speed
         ball_gc_[0] - gc_[0], ball_gc_[1] - gc_[1], ball_gc_[2] - gc_[2],
         ball_gv_[0]/10.0, ball_gv_[1]/10.0, ball_gv_[2]/10.0, ball_gv_[3]/10.0, ball_gv_[4]/10.0, ball_gv_[5]/10.0,
         phase_speed_ / 10.0, //next_phase_speed_ / 10.0, 
@@ -894,12 +983,15 @@ class ENVIRONMENT : public RaisimGymEnv {
   }
 
   bool isTerminalState(float& terminalReward) final {
+    // NOTE: what does it do?
     terminalReward = float(terminalRewardCoeff_) * 0.0f;
 
     raisim::Vec<4> quat, quat2, quat_error;
     raisim::Mat<3,3> rot, rot2, rot_error;
+    // root orn
     quat[0] = gc_[3]; quat[1] = gc_[4]; 
     quat[2] = gc_[5]; quat[3] = gc_[6];
+    // desired (straight-up) root orn
     quat2[0] = 0.707; quat2[1] = 0.707; 
     quat2[2] = 0; quat2[3] = 0;
     raisim::quatToRotMat(quat, rot);
@@ -907,16 +999,20 @@ class ENVIRONMENT : public RaisimGymEnv {
     raisim::mattransposematmul(rot, rot2, rot_error);
     raisim::rotMatToQuat(rot_error, quat_error);
 
+    // large sin^(root orn err)
     if ((std::pow(quat_error[1], 2) + std::pow(quat_error[2], 2) + std::pow(quat_error[3], 2)) > 0.06) {
       return true;
     }
+    // low root height
     if (std::abs(gc_[2]) < 0.6) {
       return true;
     }
+    // far ball pos, forward or left/right, or ball below minimum contact point
     if (std::abs(ball_gc_[0] - gc_[0] - ball_reference_[0]) > 1.0 || 
       std::abs(ball_gc_[1] - gc_[1] - ball_reference_[1]) > 0.5 || ball_gc_[2] < 0.2) {
       return true;
     }
+    // unwanted contact, etc.
     if (contact_terminal_flag_) {
       return true;
     }
@@ -925,9 +1021,11 @@ class ENVIRONMENT : public RaisimGymEnv {
     raisim::Vec<3> footPosition;
     walker_->getFramePosition(footFrameIndex, footPosition);
 
+    // around the world
     if ((current_node_->id == 2 || current_node_->id == 3) && (phase_ < max_phase_ - phase_speed_ && phase_ > phase_speed_)) {
       float ball_foot_angle_tan = atan2(footPosition[2] - ball_gc_[2], footPosition[1] - ball_gc_[1]);
       int index = int(phase_ - phase_speed_) % int(max_phase_) / max_phase_ * 30;
+      // deviates too much from reference motion data
       if (
         (std::pow(cos(ball_foot_angle_tan) - around_the_world_cos_constraint[index], 2)+
           std::pow(sin(ball_foot_angle_tan) - around_the_world_sin_constraint[index], 2) > 1)){
@@ -938,9 +1036,11 @@ class ENVIRONMENT : public RaisimGymEnv {
     auto rightfootFrameIndex = walker_->getFrameIdxByName("right_ankle"); // the URDF has a joint named "foot_joint"
     walker_->getFramePosition(rightfootFrameIndex, footPosition);
 
+    // right around the world
     if ((current_node_->id == 19 || current_node_->id == 20) && (phase_ < max_phase_ - phase_speed_ && phase_ > phase_speed_)) {
       float ball_foot_angle_tan = atan2(footPosition[2] - ball_gc_[2], footPosition[1] - ball_gc_[1]);
       int index = int(phase_ - phase_speed_) % int(max_phase_) / max_phase_ * 30;
+      // deviates too much from reference motion data
       if (
         (std::pow(cos(ball_foot_angle_tan) + around_the_world_cos_constraint[index], 2)+
           std::pow(sin(ball_foot_angle_tan) - around_the_world_sin_constraint[index], 2) > 1)){
@@ -948,9 +1048,11 @@ class ENVIRONMENT : public RaisimGymEnv {
       }
     }
 
+    // head stall (exit)
     if (current_node_->id == 11 or current_node_->id == 12) {
+      // hip joint rotates at all
       if (std::abs(gc_[26]) > 0.01 or std::abs(gc_[27]) > 0.01 or std::abs(gc_[28]) > 0.01 
-        or std::abs(gc_[35]) > 0.01 or std::abs(gc_[36]) > 0.01 or std::abs(gc_[37]) > 0.01) 
+        or std::abs(gc_[35]) > 0.01 or std::abs(gc_[36]) > 0.01 or std::abs(gc_[37]) > 0.01)
         return true;
     }
 
@@ -958,13 +1060,26 @@ class ENVIRONMENT : public RaisimGymEnv {
   }
 
   void setReferenceMotion() {
-    reference_ << 0, 0, 1.707, 0.707, 0.707, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 
-      0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0;
+    reference_ <<
+    0, 0, 1.707, // 0
+    0.707, 0.707, 0, 0, // 3
+    1, 0, 0, 0, // 7
+    1, 0, 0, 0, // 11
+    1, 0, 0, 0, // 15
+    0, // 19
+    1, 0, 0, 0, // 20
+    0, // 24
+    1, 0, 0, 0, // 25
+    0, // 29
+    1, 0, 0, 0, // 30
+    1, 0, 0, 0, // 34
+    0, // 38
+    1, 0, 0, 0; // 39
     reference_[0] = speed * 0.02 * sim_step_;
     reference_[2] = 0.9;
     //kicking with one foot
     reference_[25 + 9 * ((current_node_->id == 0 || current_node_->id==1 || current_node_->id == 4 || current_node_->id == 5
-      || current_node_->id == 13 || current_node_->id == 14) % 2) + 4] 
+      || current_node_->id == 13 || current_node_->id == 14) % 2) + 4] // (||): left or right? left -> 1, right -> 0, + 4: knee
       = -1.57 * std::sin(phase_ * 1.0 / max_phase_ * 3.1415);
 
     raisim::Vec<4> quat;
@@ -974,23 +1089,36 @@ class ENVIRONMENT : public RaisimGymEnv {
     euler[2] = 1.57 * std::sin(phase_ * 1.0 / max_phase_ * 3.1415);
     raisim::eulerVecToQuat(euler, quat);
     reference_.segment(25 + 9 * ((current_node_->id == 0 || current_node_->id==1 || current_node_->id == 4 || 
-      current_node_->id == 5 || current_node_->id == 13 || current_node_->id == 14) % 2), 4) 
+      current_node_->id == 5 || current_node_->id == 13 || current_node_->id == 14) % 2), 4) // hip. (||): left or right? left -> 1, right -> 0, 
       << quat[0], quat[1], quat[2], quat[3];
 
-    reference_[19] = 1.57;
-    reference_[24] = 1.57;
+    reference_[19] = 1.57; // right elbow
+    reference_[24] = 1.57; // left elbow
 
     euler[0] = 0.7;
     euler[1] = 0;
     euler[2] = 0;
     raisim::eulerVecToQuat(euler, quat);
-    reference_.segment(15, 4) << quat[0], -quat[1], quat[2], quat[3];
-    reference_.segment(20, 4) << quat[0], quat[1], quat[2], quat[3];
+    reference_.segment(15, 4) << quat[0], -quat[1], quat[2], quat[3]; // right shoulder
+    reference_.segment(20, 4) << quat[0], quat[1], quat[2], quat[3]; // left shoulder (mirrored)
   }
 
   void setReferenceMotionHead() {
-    reference_ << 0, 0, 1.707, 0.707, 0.707, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 
-      0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0;
+    reference_ <<
+      0, 0, 1.707, // 0
+      0.707, 0.707, 0, 0, // 3
+      1, 0, 0, 0, // 7
+      1, 0, 0, 0, // 11
+      1, 0, 0, 0, // 15
+      0, // 19
+      1, 0, 0, 0, // 20
+      0, // 24
+      1, 0, 0, 0, // 25
+      0, // 29
+      1, 0, 0, 0, // 30
+      1, 0, 0, 0, // 34
+      0, // 38
+      1, 0, 0, 0; // 39
 
     reference_[0] = speed * 0.02 * sim_step_;
     reference_[2] = 0.9;
@@ -1002,76 +1130,86 @@ class ENVIRONMENT : public RaisimGymEnv {
       euler[1] = 0;
       euler[2] = final_angle * std::sin(phase_ / max_phase_ * 3.1415 * 2);
       raisim::eulerVecToQuat(euler, quat);
-      reference_.segment(30, 4) << quat[0], quat[1], quat[2], quat[3];
-      reference_.segment(39, 4) << quat[0], quat[1], quat[2], quat[3];
-      reference_[29] = -final_angle * std::sin(phase_ / max_phase_ * 3.1415 * 2);
-      reference_[38] = -final_angle * std::sin(phase_ / max_phase_ * 3.1415 * 2);
+      reference_.segment(30, 4) << quat[0], quat[1], quat[2], quat[3]; // right ankle
+      reference_.segment(39, 4) << quat[0], quat[1], quat[2], quat[3]; // left ankle
+      reference_[29] = -final_angle * std::sin(phase_ / max_phase_ * 3.1415 * 2); // right knee
+      reference_[38] = -final_angle * std::sin(phase_ / max_phase_ * 3.1415 * 2); // left knee
     }
-    reference_[2] -= (0.5 - 0.5 * std::cos(reference_[29]));
-    reference_[0] += 0.5 * std::sin(-reference_[29]);
+    reference_[2] -= (0.5 - 0.5 * std::cos(reference_[29])); // height <- right knee
+    reference_[0] += 0.5 * std::sin(-reference_[29]); // forward <- right knee
 
-    reference_[19] = 1.57;
+    reference_[19] = 1.57; 
     reference_[24] = 1.57;
     euler[0] = 0.7;
     euler[1] = 0;
     euler[2] = 0;
     raisim::eulerVecToQuat(euler, quat);
-    reference_.segment(15, 4) << quat[0], -quat[1], quat[2], quat[3];
-    reference_.segment(20, 4) << quat[0], quat[1], quat[2], quat[3];
+    reference_.segment(15, 4) << quat[0], -quat[1], quat[2], quat[3]; // right shoulder
+    reference_.segment(20, 4) << quat[0], quat[1], quat[2], quat[3]; // left shoulder
   }
 
   void setBallReference() {
+    // ball_gc_init_.setZero(7); ball_gc_init_[0] = 0.2; ball_gc_init_[1] = 0.15; ball_gc_init_[3] = 1;
     ball_reference_ *= 0;
-    ball_reference_[0] = ball_gc_init_[0];
+    ball_reference_[0] = ball_gc_init_[0]; // 0.2
     ball_reference_[3] = 1;
     float init_vel = g_ * max_phase_ * control_dt_ / 2 / phase_speed_;
     
     float init_height = 0;
 
     if (current_node_->id == 9 or current_node_->id == 10 or current_node_->id == 11 or current_node_->id == 12) {
+      // head juggle down/up, head stall (exit)
       init_height = 1.6;
-      //ball_reference_[0] = 0.0;
+      // ball_reference_[0] = 0.0;
     }
     else if (current_node_->id == 13 || current_node_->id == 14 || current_node_->id == 17 or current_node_->id == 18) {
+      // (right) knee juggle down/up, 
       init_height = 1.0;  // 1 for knee juggling 0.5 for foot
-      //ball_reference_[0] = 0.4;  //0.5 for foot 0.4 for knee
+      // ball_reference_[0] = 0.4;  //0.5 for foot 0.4 for knee
     }
     else if (current_node_->id == 7 or current_node_->id == 8) {
+      // chest juggle up/down
       init_height = 1.3;
     }
     else {
       init_height = 0.5;  // 1 for knee juggling 0.5 for foot
-      //ball_reference_[0] = 0.65;  //0.5 for foot 0.4 for knee
+      // ball_reference_[0] = 0.65;  //0.5 for foot 0.4 for knee
     }
 
     if (phase_ <= max_phase_ /2) {
       if (current_node_->id == 9 or current_node_->id == 10 or current_node_->id == 11 or current_node_->id == 12) {
+        // head juggle down/up, head stall (exit)
         ball_reference_[0] = 0.0;
         ball_reference_[1] = 0.0;
       }
       else if (current_node_->id == 13 || current_node_->id == 14 || current_node_->id == 17 || current_node_->id == 18) {
-        ball_reference_[0] = 0.4;  //0.5 for foot 0.4 for knee
-        ball_reference_[1] = 0.1 * (((current_node_->id == 13 || current_node_->id== 14) % 2) * 2 - 1);
+        // (right) knee juggle down/up, 
+        ball_reference_[0] = 0.4;  // 0.5 for foot 0.4 for knee
+        ball_reference_[1] = 0.1 * (((current_node_->id == 13 || current_node_->id== 14) % 2) * 2 - 1); // (||): left -> 1, right -> 0
       }
       else if (current_node_->id == 7 or current_node_->id == 8) {
+        // chest juggle up/down
         ball_reference_[0] = 0.25;
         ball_reference_[1] = 0;
       }
       else {
-        ball_reference_[0] = 0.6;  //0.5 for foot 0.4 for knee
+        ball_reference_[0] = 0.6;  // 0.5 for foot 0.4 for knee
         ball_reference_[1] = 0.1 * (((current_node_->id == 0 || current_node_->id==1 || current_node_->id == 4 || current_node_->id == 5) % 2) * 2 - 1);
       }
     }
     else {
       if (next_node_->id == 9 or next_node_->id == 10 or next_node_->id == 11 or next_node_->id == 12) {
+        // head juggle down/up, head stall (exit)
         ball_reference_[0] = 0.0;
         ball_reference_[1] = 0.0;
       }
       else if (next_node_->id == 13 || next_node_->id == 14 || current_node_->id == 17 || current_node_->id == 18) {
+        // (right) knee juggle down/up, 
         ball_reference_[0] = 0.4;  //0.5 for foot 0.4 for knee
         ball_reference_[1] = 0.1 * (((next_node_->id == 13 || next_node_->id== 14) % 2) * 2 - 1);
       }
       else if (next_node_->id == 7 or next_node_->id == 8) {
+        // chest juggle up/down
         ball_reference_[0] = 0.25;
         ball_reference_[1] = 0;
       }
@@ -1081,19 +1219,23 @@ class ENVIRONMENT : public RaisimGymEnv {
       }
     }
     
-    float max_height = 0.5 * g_ * std::pow(max_phase_ / 2 * control_dt_  / phase_speed_ , 2)+ init_height;
+    float max_height = 0.5 * g_ * std::pow(max_phase_ / 2 * control_dt_  / phase_speed_ , 2) + init_height;
     if (current_node_->id == 4 or current_node_->id == 5 or current_node_->id == 21 or current_node_->id == 22) {
+      // (right) foot stall (exit)
       ball_reference_[2] = 0.5;
     }
     else if (current_node_->id == 11 or current_node_->id == 12) {
+      // head stall (exit)
       ball_reference_[2] = 1.6;
     }
     else if (phase_ > max_phase_ / 2) {
+      // ball going up
       float cur_vel = init_vel - g_ * (phase_ - max_phase_ / 2) * control_dt_ / phase_speed_;
       ball_reference_[2] = (init_vel + cur_vel) / 2.0 * control_dt_ * (phase_ - max_phase_/2) / phase_speed_ + init_height;
       ball_reference_vel_[2] = cur_vel;
     }
     else {
+      // ball going down
       ball_reference_[2] = max_height - 0.5 * g_ * std::pow((phase_)*control_dt_ / phase_speed_, 2);
       ball_reference_vel_[2] = -g_ * (phase_)*control_dt_ / phase_speed_;
     }
@@ -1101,9 +1243,13 @@ class ENVIRONMENT : public RaisimGymEnv {
 
   void calculate_phase_speed(float max_height) {
     float final_height = 0.0;
+    // head juggle down/up
     if (current_node_->id == 9 or current_node_->id == 10) final_height = 1.6;
+    // (right) around the world up/down
     else if (current_node_->id == 3 || current_node_->id == 4 || current_node_->id == 21 || current_node_->id == 22) final_height = 1.0;
+    // chest juggle up/down
     else if (current_node_->id == 7 || current_node_->id == 8) final_height = 1.31;
+    // (right) knee juggle down/up
     else if (current_node_->id == 13 || current_node_->id == 14 || current_node_->id == 17 || current_node_->id == 18) final_height = 1.0;
     else final_height = 0.5;
     float time_to_fall = std::sqrt((max_height - final_height) * 2 / g_);
@@ -1112,7 +1258,7 @@ class ENVIRONMENT : public RaisimGymEnv {
 
   void read_around_the_world() {
     // data 030004_001_20_T_ST_0100_2_JM_Player2_Standard/Input.txt frame 414, num_frame 30
-    std::ifstream infile("around_the_world.txt");
+    std::ifstream infile(resourceDir_ + "/around_the_world.txt");
     float data;
     int i = 0, j = 0;
     while (infile >> data) {
@@ -1132,7 +1278,7 @@ class ENVIRONMENT : public RaisimGymEnv {
 
   void read_around_the_world_right() {
     // data 030004_001_20_T_ST_0100_2_JM_Player2_Standard/Input.txt frame 414, num_frame 30
-    std::ifstream infile("around_the_world_right.txt");
+    std::ifstream infile(resourceDir_ + "/around_the_world_right.txt");
     float data;
     int i = 0, j = 0;
     while (infile >> data) {
@@ -1329,7 +1475,7 @@ class ENVIRONMENT : public RaisimGymEnv {
   int task_index_ = 0;
   int next_task_index_ = 0;
 
-  // control graph
+  // control graph : 23(=num_task_) skills
   Node* foot_juggle_down_node_ = new Node();
   Node* foot_juggle_up_node_ = new Node();
   Node* around_the_world_up_node_ = new Node();
